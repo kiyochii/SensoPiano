@@ -1,12 +1,12 @@
 module mode_controller (
-    input  wire       clk,
-    input  wire       rst,
+    input  wire        clk,
+    input  wire        rst,
 
-    input  wire       mode_sel,         // 0 = livre, 1 = aprender
-    input  wire       start,            // inicia modo aprender
+    input  wire        mode_sel,         // 0 = livre, 1 = aprender
+    input  wire        start,            // inicia modo aprender
 
-    input  wire [3:0] key_code,
-    input  wire       key_valid_pulse,
+    input  wire [3:0]  key_code,
+    input  wire        key_valid_pulse,
 
     output reg  [11:0] leds_out,
     output reg         send_note,
@@ -67,7 +67,7 @@ module mode_controller (
         end
     end
 
-    // expected key
+    // nota esperada
     always @(*) begin
         expected_key = song_rom(song_index);
     end
@@ -80,8 +80,6 @@ module mode_controller (
             FREE_MODE: begin
                 if (mode_sel)
                     next_state = LEARN_IDLE;
-                else
-                    next_state = FREE_MODE;
             end
 
             LEARN_IDLE: begin
@@ -89,8 +87,6 @@ module mode_controller (
                     next_state = FREE_MODE;
                 else if (start)
                     next_state = LEARN_SHOW;
-                else
-                    next_state = LEARN_IDLE;
             end
 
             LEARN_SHOW: begin
@@ -102,14 +98,12 @@ module mode_controller (
                     next_state = FREE_MODE;
                 else if (key_valid_pulse)
                     next_state = LEARN_CHECK;
-                else
-                    next_state = LEARN_WAIT;
             end
 
             LEARN_CHECK: begin
-                if (!mode_sel) begin
+                if (!mode_sel)
                     next_state = FREE_MODE;
-                end else if (user_key == expected_key) begin
+                else if (user_key == expected_key) begin
                     if (song_index == 2'd3)
                         next_state = LEARN_DONE;
                     else
@@ -122,8 +116,6 @@ module mode_controller (
             LEARN_DONE: begin
                 if (!mode_sel)
                     next_state = FREE_MODE;
-                else
-                    next_state = LEARN_DONE;
             end
 
             default: begin
@@ -145,28 +137,27 @@ module mode_controller (
         case (state)
             FREE_MODE: begin
                 if (key_valid_pulse) begin
-                    leds_out  = 12'b000000000001 << key_code;
+                    leds_out  = (12'b000000000001 << key_code);
                     send_note = 1'b1;
                     note_out  = key_code;
                 end
             end
 
             LEARN_SHOW: begin
-                leds_out  = 12'b000000000001 << expected_key;
+                leds_out  = (12'b000000000001 << expected_key);
                 send_note = 1'b1;
                 note_out  = expected_key;
             end
 
             LEARN_WAIT: begin
-                leds_out = 12'b000000000001 << expected_key;
+                leds_out = (12'b000000000001 << expected_key);
             end
 
             LEARN_CHECK: begin
-                if (user_key == expected_key) begin
+                if (user_key == expected_key)
                     correct_pulse = 1'b1;
-                end else begin
+                else
                     wrong_pulse = 1'b1;
-                end
             end
 
             LEARN_DONE: begin
