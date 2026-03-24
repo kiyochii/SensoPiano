@@ -14,7 +14,10 @@ module top (
     output wire [3:0]  key_code_reg,
     output wire        key_valid_pulse,
     output wire [1:0]  state_dbg,
-    output wire        uart_busy
+    output wire        uart_busy,
+    output wire [11:0] leds_out,
+    output wire [11:0] leds_out_reg
+
 );
 
     wire load_key;
@@ -35,6 +38,10 @@ module top (
         .key_code_reg     (key_code_reg),
         .keys_db          (keys_db)
     );
+
+    assign leds_out = (key_valid) ? (12'b000000000001 << key_code_current) : 12'b0;
+    assign leds_out = (12'b000000000001 << key_code_reg);
+
 
     UC u_uc (
         .clk             (clk),
