@@ -3,13 +3,11 @@ module top (
     input  wire        rst,
     input  wire [11:0] keys_raw,
 
-    // controle de modo
-    input  wire        mode_sel,   // 0 = livre, 1 = aprender
-    input  wire        start,      // inicia modo aprender
+    input  wire        mode_sel,
+    input  wire        start,
 
     output wire        esp_txd,
 
-    // debug fluxo de dados
     output wire [11:0] keys_db,
     output wire        key_any,
     output wire        key_valid,
@@ -17,18 +15,14 @@ module top (
     output wire [3:0]  key_code_current,
     output wire [3:0]  key_code_reg,
 
-    // debug UC base
     output wire        key_valid_pulse,
     output wire [1:0]  state_dbg,
 
-    // debug UART
     output wire        uart_busy,
 
-    // debug LEDs simples
-    output wire [11:0] leds_out,       // tecla atual / visualização
-    output wire [11:0] leds_out_reg,   // tecla registrada
+    output wire [11:0] leds_out,
+    output wire [11:0] leds_out_reg,
 
-    // debug mode controller
     output wire        mc_send_note,
     output wire [3:0]  mc_note_out,
     output wire        mc_correct_pulse,
@@ -36,10 +30,14 @@ module top (
     output wire        mc_done,
     output wire [2:0]  mc_state_dbg,
 
-    // RGB das 12 teclas
     output wire [11:0] rgb_r,
     output wire [11:0] rgb_g,
-    output wire [11:0] rgb_b
+    output wire [11:0] rgb_b,
+
+    output wire        led_ser,
+    output wire        led_srclk,
+    output wire        led_rclk,
+    output wire        led_busy
 );
 
     wire load_key;
@@ -49,6 +47,13 @@ module top (
     wire       tx_tready;
 
     wire [11:0] mc_leds_out;
+    wire [11:0] mc_rgb_r;
+    wire [11:0] mc_rgb_g;
+    wire [11:0] mc_rgb_b;
+    wire [2:0]  mc_octave_out;
+
+    wire [35:0] rgb_data;
+    wire        shift_start;
 
     // =========================================================
     // Fluxo de dados: debounce / validação / codificação da tecla
@@ -67,7 +72,7 @@ module top (
     );
 
     // =========================================================
-    // UC base: registra tecla uma vez e espera soltar
+    // UC base
     // =========================================================
     UC u_uc (
         .clk             (clk),
@@ -82,12 +87,6 @@ module top (
 
     // =========================================================
     // Mode controller
-    // Em modo livre:
-    //   - acende tecla tocada
-    //   - envia nota tocada
-    // Em modo aprender:
-    //   - mostra nota esperada
-    //   - envia nota esperada no estado LEARN_SHOW
     // =========================================================
     mode_controller u_mode_controller (
         .clk             (clk),
@@ -96,9 +95,16 @@ module top (
         .start           (start),
         .key_code        (key_code_reg),
         .key_valid_pulse (key_valid_pulse),
+
         .leds_out        (mc_leds_out),
+        .rgb_r           (mc_rgb_r),
+        .rgb_g           (mc_rgb_g),
+        .rgb_b           (mc_rgb_b),
+
         .send_note       (mc_send_note),
         .note_out        (mc_note_out),
+        .octave_out      (mc_octave_out),
+
         .correct_pulse   (mc_correct_pulse),
         .wrong_pulse     (mc_wrong_pulse),
         .done            (mc_done),
@@ -112,16 +118,55 @@ module top (
     assign leds_out_reg = (12'b000000000001 << key_code_reg);
 
     // =========================================================
-    // RGB
-    // Por enquanto: acende em branco a tecla ativa do mode_controller
+    // RGB vindos do mode_controller
     // =========================================================
-    assign rgb_r = mc_leds_out;
-    assign rgb_g = mc_leds_out;
-    assign rgb_b = mc_leds_out;
+    assign rgb_r = mc_rgb_r;
+    assign rgb_g = mc_rgb_g;
+    assign rgb_b = mc_rgb_b;
+
+    // =========================================================
+    // Empacotamento RGB por LED
+    // Ordem: LED11 ... LED0
+    // Cada LED ocupa 3 bits: R, G, B
+    // Se a ligação física estiver BGR, troque a ordem aqui
+    // =========================================================
+    assign rgb_data = {
+        rgb_r[11], rgb_g[11], rgb_b[11],
+        rgb_r[10], rgb_g[10], rgb_b[10],
+        rgb_r[9],  rgb_g[9],  rgb_b[9],
+        rgb_r[8],  rgb_g[8],  rgb_b[8],
+        rgb_r[7],  rgb_g[7],  rgb_b[7],
+        rgb_r[6],  rgb_g[6],  rgb_b[6],
+        rgb_r[5],  rgb_g[5],  rgb_b[5],
+        rgb_r[4],  rgb_g[4],  rgb_b[4],
+        rgb_r[3],  rgb_g[3],  rgb_b[3],
+        rgb_r[2],  rgb_g[2],  rgb_b[2],
+        rgb_r[1],  rgb_g[1],  rgb_b[1],
+        rgb_r[0],  rgb_g[0],  rgb_b[0]
+    };
+
+    // =========================================================
+    // Atualização do shift register
+    // =========================================================
+    assign shift_start = key_valid_pulse | mc_send_note;
+
+    shift595 #(
+        .WIDTH(36)
+    ) u_shift595 (
+        .clk   (clk),
+        .rst   (rst),
+        .start (shift_start),
+        .data  (rgb_data),
+        .ser   (led_ser),
+        .srclk (led_srclk),
+        .rclk  (led_rclk),
+        .busy  (led_busy)
+    );
 
     // =========================================================
     // Envio UART
-    // A UART agora segue o mode_controller
+    // Por enquanto ainda manda só a nota.
+    // Depois você pode adaptar o sender para mandar {oitava, nota}.
     // =========================================================
     uart_key_sender u_uart_key_sender (
         .clk       (clk),
@@ -130,6 +175,7 @@ module top (
         .key_code  (mc_note_out),
         .tx_tdata  (tx_tdata),
         .tx_tvalid (tx_tvalid),
+        .octave_code(mc_octave_out),
         .tx_tready (tx_tready)
     );
 

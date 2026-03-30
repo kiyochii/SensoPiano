@@ -9,8 +9,14 @@ module mode_controller (
     input  wire        key_valid_pulse,
 
     output reg  [11:0] leds_out,
+    output reg  [11:0] rgb_r,
+    output reg  [11:0] rgb_g,
+    output reg  [11:0] rgb_b,
+
     output reg         send_note,
     output reg  [3:0]  note_out,
+    output reg  [2:0]  octave_out,
+
     output reg         correct_pulse,
     output reg         wrong_pulse,
     output reg         done,
@@ -27,24 +33,38 @@ module mode_controller (
     reg [2:0] state, next_state;
 
     reg [1:0] song_index;
-    reg [3:0] expected_key;
     reg [3:0] user_key;
 
-    // música de teste: 4 notas
-    function [3:0] song_rom;
+    reg [6:0] expected_full;
+    reg [3:0] expected_note;
+    reg [2:0] expected_octave;
+
+    wire [11:0] expected_onehot;
+    wire [11:0] user_onehot;
+
+    assign expected_onehot = (12'b000000000001 << expected_note);
+    assign user_onehot     = (12'b000000000001 << key_code);
+
+    // ==========================================
+    // ROM simples da música
+    // Formato: [6:4] = oitava, [3:0] = nota
+    // ==========================================
+    function [6:0] song_rom;
         input [1:0] idx;
         begin
             case (idx)
-                2'd0: song_rom = 4'd0;
-                2'd1: song_rom = 4'd4;
-                2'd2: song_rom = 4'd7;
-                2'd3: song_rom = 4'd11;
-                default: song_rom = 4'd0;
+                2'd0: song_rom = 7'b011_0000; // oitava 3, nota 0
+                2'd1: song_rom = 7'b100_0100; // oitava 4, nota 4
+                2'd2: song_rom = 7'b101_0111; // oitava 5, nota 7
+                2'd3: song_rom = 7'b110_1011; // oitava 6, nota 11
+                default: song_rom = 7'b100_0000;
             endcase
         end
     endfunction
 
-    // registradores principais
+    // ==========================================
+    // Registradores principais
+    // ==========================================
     always @(posedge clk) begin
         if (rst) begin
             state      <= FREE_MODE;
@@ -58,8 +78,10 @@ module mode_controller (
             end else begin
                 if (state == LEARN_IDLE && start)
                     song_index <= 2'd0;
-                else if (state == LEARN_CHECK && key_valid_pulse && key_code == expected_key)
-                    song_index <= song_index + 2'd1;
+                else if (state == LEARN_CHECK && user_key == expected_note) begin
+                    if (song_index != 2'd3)
+                        song_index <= song_index + 2'd1;
+                end
 
                 if (state == LEARN_WAIT && key_valid_pulse)
                     user_key <= key_code;
@@ -67,12 +89,18 @@ module mode_controller (
         end
     end
 
-    // nota esperada
+    // ==========================================
+    // Nota e oitava esperadas
+    // ==========================================
     always @(*) begin
-        expected_key = song_rom(song_index);
+        expected_full   = song_rom(song_index);
+        expected_octave = expected_full[6:4];
+        expected_note   = expected_full[3:0];
     end
 
-    // próxima lógica de estado
+    // ==========================================
+    // Próximo estado
+    // ==========================================
     always @(*) begin
         next_state = state;
 
@@ -103,7 +131,7 @@ module mode_controller (
             LEARN_CHECK: begin
                 if (!mode_sel)
                     next_state = FREE_MODE;
-                else if (user_key == expected_key) begin
+                else if (user_key == expected_note) begin
                     if (song_index == 2'd3)
                         next_state = LEARN_DONE;
                     else
@@ -124,37 +152,67 @@ module mode_controller (
         endcase
     end
 
-    // saídas
+    // ==========================================
+    // Saídas
+    // ==========================================
     always @(*) begin
         leds_out      = 12'd0;
+        rgb_r         = 12'd0;
+        rgb_g         = 12'd0;
+        rgb_b         = 12'd0;
+
         send_note     = 1'b0;
         note_out      = 4'd0;
+        octave_out    = 3'd0;
+
         correct_pulse = 1'b0;
         wrong_pulse   = 1'b0;
         done          = 1'b0;
         state_dbg     = state;
 
         case (state)
+
             FREE_MODE: begin
                 if (key_valid_pulse) begin
-                    leds_out  = (12'b000000000001 << key_code);
-                    send_note = 1'b1;
-                    note_out  = key_code;
+                    leds_out   = user_onehot;
+
+                    // branco no modo livre
+                    rgb_r      = user_onehot;
+                    rgb_g      = user_onehot;
+                    rgb_b      = user_onehot;
+
+                    send_note  = 1'b1;
+                    note_out   = key_code;
+                    octave_out = 3'd4;
                 end
             end
 
             LEARN_SHOW: begin
-                leds_out  = (12'b000000000001 << expected_key);
-                send_note = 1'b1;
-                note_out  = expected_key;
+                leds_out   = expected_onehot;
+                send_note  = 1'b1;
+                note_out   = expected_note;
+                octave_out = expected_octave;
+
+                // cor baseada na oitava
+                case (expected_octave)
+                    3'd0, 3'd1, 3'd2: rgb_r = expected_onehot; // grave
+                    3'd3, 3'd4, 3'd5: rgb_g = expected_onehot; // médio
+                    default:           rgb_b = expected_onehot; // agudo
+                endcase
             end
 
             LEARN_WAIT: begin
-                leds_out = (12'b000000000001 << expected_key);
+                leds_out = expected_onehot;
+
+                case (expected_octave)
+                    3'd0, 3'd1, 3'd2: rgb_r = expected_onehot;
+                    3'd3, 3'd4, 3'd5: rgb_g = expected_onehot;
+                    default:           rgb_b = expected_onehot;
+                endcase
             end
 
             LEARN_CHECK: begin
-                if (user_key == expected_key)
+                if (user_key == expected_note)
                     correct_pulse = 1'b1;
                 else
                     wrong_pulse = 1'b1;
