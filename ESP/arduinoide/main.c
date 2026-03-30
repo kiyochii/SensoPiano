@@ -12,17 +12,16 @@
 
 #define SPEAKER_GPIO           19
 
-// Timeout sem receber nada -> desliga speaker
 #define RX_SILENCE_TIMEOUT_MS  3000
-
-// Intervalo de relatório de debug
 #define DEBUG_REPORT_MS        5000
 
 // =======================
 // LEDC
 // =======================
 #define LEDC_DUTY_RES_BITS     10
-#define LEDC_DUTY_50PCT        512
+#define LEDC_MAX_DUTY          ((1 << LEDC_DUTY_RES_BITS) - 1)
+#define PIANO_ATTACK_DUTY      220
+#define PIANO_SUSTAIN_DUTY     90
 
 // =======================
 // Mapeamento musical
@@ -111,8 +110,14 @@ static void print_debug_report(void)
 }
 
 // =======================
-// Speaker
+// Speaker estilo piano
 // =======================
+static bool set_volume(uint32_t duty)
+{
+  if (duty > LEDC_MAX_DUTY) duty = LEDC_MAX_DUTY;
+  return ledcWrite(SPEAKER_GPIO, duty);
+}
+
 static bool speaker_init(void)
 {
   bool ok = ledcAttach(SPEAKER_GPIO, 1000, LEDC_DUTY_RES_BITS);
@@ -124,7 +129,7 @@ static bool speaker_init(void)
     return false;
   }
 
-  ledcWrite(SPEAKER_GPIO, 0);
+  set_volume(0);
 
   Serial.print("Speaker inicializado no GPIO ");
   Serial.println(SPEAKER_GPIO);
@@ -133,9 +138,16 @@ static bool speaker_init(void)
 
 static bool speaker_stop(void)
 {
-  bool ok = ledcWrite(SPEAKER_GPIO, 0);
+  for (int d = PIANO_SUSTAIN_DUTY; d >= 0; d -= 8) {
+    if (!set_volume((uint32_t)d)) {
+      Serial.println("Falha ao reduzir volume no release");
+      g_stats.ledc_errors++;
+      return false;
+    }
+    delay(2);
+  }
 
-  if (!ok) {
+  if (!set_volume(0)) {
     Serial.println("Falha ao desligar speaker");
     g_stats.ledc_errors++;
     return false;
@@ -162,10 +174,26 @@ static bool speaker_play_freq(uint32_t freq_hz)
     return false;
   }
 
-  bool ok = ledcWrite(SPEAKER_GPIO, LEDC_DUTY_50PCT);
+  for (int d = 0; d <= PIANO_ATTACK_DUTY; d += 12) {
+    if (!set_volume((uint32_t)d)) {
+      Serial.println("Falha no attack");
+      g_stats.ledc_errors++;
+      return false;
+    }
+    delay(1);
+  }
 
-  if (!ok) {
-    Serial.println("Falha ao aplicar duty no speaker");
+  for (int d = PIANO_ATTACK_DUTY; d >= PIANO_SUSTAIN_DUTY; d -= 6) {
+    if (!set_volume((uint32_t)d)) {
+      Serial.println("Falha no decay");
+      g_stats.ledc_errors++;
+      return false;
+    }
+    delay(2);
+  }
+
+  if (!set_volume(PIANO_SUSTAIN_DUTY)) {
+    Serial.println("Falha no sustain");
     g_stats.ledc_errors++;
     return false;
   }
