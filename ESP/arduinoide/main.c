@@ -10,7 +10,7 @@
 #define UART_RX_PIN            18
 #define UART_BAUD_RATE         115200
 
-#define SPEAKER_GPIO           4
+#define SPEAKER_GPIO           19
 
 // Timeout sem receber nada -> desliga speaker
 #define RX_SILENCE_TIMEOUT_MS  3000
@@ -21,9 +21,8 @@
 // =======================
 // LEDC
 // =======================
-#define LEDC_CHANNEL_USED      0
 #define LEDC_DUTY_RES_BITS     10
-#define LEDC_DUTY_50PCT        512   // 50% de 1024
+#define LEDC_DUTY_50PCT        512
 
 // =======================
 // Mapeamento musical
@@ -116,12 +115,16 @@ static void print_debug_report(void)
 // =======================
 static bool speaker_init(void)
 {
-  // Em muitos cores ESP32 para Arduino:
-  // ledcSetup(canal, freq, resolucao)
-  // ledcAttachPin(pino, canal)
-  ledcSetup(LEDC_CHANNEL_USED, 1000, LEDC_DUTY_RES_BITS);
-  ledcAttachPin(SPEAKER_GPIO, LEDC_CHANNEL_USED);
-  ledcWrite(LEDC_CHANNEL_USED, 0);
+  bool ok = ledcAttach(SPEAKER_GPIO, 1000, LEDC_DUTY_RES_BITS);
+
+  if (!ok) {
+    Serial.print("Falha ao anexar LEDC no GPIO ");
+    Serial.println(SPEAKER_GPIO);
+    g_stats.ledc_errors++;
+    return false;
+  }
+
+  ledcWrite(SPEAKER_GPIO, 0);
 
   Serial.print("Speaker inicializado no GPIO ");
   Serial.println(SPEAKER_GPIO);
@@ -130,7 +133,14 @@ static bool speaker_init(void)
 
 static bool speaker_stop(void)
 {
-  ledcWrite(LEDC_CHANNEL_USED, 0);
+  bool ok = ledcWrite(SPEAKER_GPIO, 0);
+
+  if (!ok) {
+    Serial.println("Falha ao desligar speaker");
+    g_stats.ledc_errors++;
+    return false;
+  }
+
   g_stats.speaker_on = false;
   g_stats.last_freq_hz = 0;
   return true;
@@ -142,11 +152,9 @@ static bool speaker_play_freq(uint32_t freq_hz)
     return speaker_stop();
   }
 
-  // Algumas versões do core aceitam ledcWriteTone
-  // e ela já ajusta a frequência do canal.
-  double real_freq = ledcWriteTone(LEDC_CHANNEL_USED, freq_hz);
+  uint32_t real_freq = ledcWriteTone(SPEAKER_GPIO, freq_hz);
 
-  if (real_freq <= 0.0) {
+  if (real_freq == 0) {
     Serial.print("Falha ao configurar LEDC para ");
     Serial.print(freq_hz);
     Serial.println(" Hz");
@@ -154,18 +162,24 @@ static bool speaker_play_freq(uint32_t freq_hz)
     return false;
   }
 
-  if ((uint32_t)(real_freq + 0.5) != freq_hz) {
+  bool ok = ledcWrite(SPEAKER_GPIO, LEDC_DUTY_50PCT);
+
+  if (!ok) {
+    Serial.println("Falha ao aplicar duty no speaker");
+    g_stats.ledc_errors++;
+    return false;
+  }
+
+  if (real_freq != freq_hz) {
     Serial.print("LEDC ajustou freq pedida=");
     Serial.print(freq_hz);
     Serial.print(" Hz para freq real=");
-    Serial.print(real_freq, 2);
+    Serial.print(real_freq);
     Serial.println(" Hz");
   }
 
-  ledcWrite(LEDC_CHANNEL_USED, LEDC_DUTY_50PCT);
-
   g_stats.speaker_on = true;
-  g_stats.last_freq_hz = (uint32_t)(real_freq + 0.5);
+  g_stats.last_freq_hz = real_freq;
   return true;
 }
 
@@ -191,8 +205,8 @@ static bool uart_music_init(void)
 // =======================
 static void process_rx_byte(uint8_t rx_byte)
 {
-  uint8_t octave = (rx_byte >> 4) & 0x07;  // bits 6:4
-  uint8_t note   = rx_byte & 0x0F;         // bits 3:0
+  uint8_t octave = (rx_byte >> 4) & 0x07;
+  uint8_t note   = rx_byte & 0x0F;
 
   g_stats.total_bytes++;
   g_stats.last_byte = rx_byte;
