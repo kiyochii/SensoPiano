@@ -1,13 +1,50 @@
 module top (
-    input  wire        clk,
-    input  wire        rst,
-    input  wire [11:0] keys_raw,
 
-    input  wire        mode_sel,
-    input  wire        start,
+    // =========================================================
+    // OBRIGATÓRIO (clock e reset)
+    // =========================================================
+    input  wire        clk,        // CLOCK FPGA (ex: 50 MHz DE0-CV)
+    input  wire        rst,        // RESET global
 
-    output wire        esp_txd,
+    // =========================================================
+    // OBRIGATORIO (entrada do teclado físico)
+    // =========================================================
+    input  wire [11:0] keys_raw,   // 12 teclas físicas
 
+    // =========================================================
+    // OBRIGATORIO (controle do modo - pode ir pra botão)
+    // =========================================================
+    input  wire        mode_sel,   // chave: livre/aprender
+    input  wire        start,      // botão: iniciar modo aprender
+
+    // =========================================================
+    // comunicação com ESP32
+    // =========================================================
+    output wire        esp_txd,    // UART TX → RX do ESP32
+
+    // =========================================================
+    // serve para nada
+    // =========================================================
+    output wire [11:0] leds_out,   // LEDs simples (tecla ativa)
+    
+    // =========================================================
+    // (shift register 74HC595)
+    // =========================================================
+    output wire        led_ser,    // DATA
+    output wire        led_srclk,  // SHIFT CLOCK
+    output wire        led_rclk,   // LATCH
+    output wire        led_busy,   // opcional (debug útil)
+
+    // =========================================================
+    // RGB (depende se você realmente usar LED RGB)
+    // =========================================================
+    output wire [11:0] rgb_r,
+    output wire [11:0] rgb_g,
+    output wire [11:0] rgb_b,
+
+    // =========================================================
+    //  DEBUG
+    // =========================================================
     output wire [11:0] keys_db,
     output wire        key_any,
     output wire        key_valid,
@@ -20,7 +57,6 @@ module top (
 
     output wire        uart_busy,
 
-    output wire [11:0] leds_out,
     output wire [11:0] leds_out_reg,
 
     output wire        mc_send_note,
@@ -28,18 +64,9 @@ module top (
     output wire        mc_correct_pulse,
     output wire        mc_wrong_pulse,
     output wire        mc_done,
-    output wire [2:0]  mc_state_dbg,
+    output wire [2:0]  mc_state_dbg
 
-    output wire [11:0] rgb_r,
-    output wire [11:0] rgb_g,
-    output wire [11:0] rgb_b,
-
-    output wire        led_ser,
-    output wire        led_srclk,
-    output wire        led_rclk,
-    output wire        led_busy
 );
-
     wire load_key;
 
     wire [7:0] tx_tdata;
@@ -150,9 +177,7 @@ module top (
     // =========================================================
     assign shift_start = key_valid_pulse | mc_send_note;
 
-    shift595 #(
-        .WIDTH(36)
-    ) u_shift595 (
+    shift595 u_shift595 (
         .clk   (clk),
         .rst   (rst),
         .start (shift_start),
