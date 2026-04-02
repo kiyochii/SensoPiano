@@ -54,9 +54,11 @@ module mode_controller (
         begin
             case (idx)
                 2'd0: song_rom = 7'b011_0000; // oitava 3, nota 0
-                2'd1: song_rom = 7'b100_0100; // oitava 4, nota 4
-                2'd2: song_rom = 7'b101_0111; // oitava 5, nota 7
-                2'd3: song_rom = 7'b110_1011; // oitava 6, nota 11
+                2'd1: song_rom = 7'b100_0010; // oitava 4, nota 4
+                2'd2: song_rom = 7'b101_0100; // oitava 5, nota 7
+                2'd3: song_rom = 7'b110_0001; // oitava 6, nota 11
+2'd4: song_rom = 7'b101_0100; // oitava 5, nota 7
+                2'd5: song_rom = 7'b110_0101; // oitava 6, nota 11
                 default: song_rom = 7'b100_0000;
             endcase
         end
@@ -78,12 +80,12 @@ module mode_controller (
             end else begin
                 if (state == LEARN_IDLE && start)
                     song_index <= 2'd0;
-                else if (state == LEARN_CHECK && user_key == expected_note) begin
+                else if (state == LEARN_CHECK && key_code == expected_note) begin
                     if (song_index != 2'd3)
                         song_index <= song_index + 2'd1;
                 end
 
-                if (state == LEARN_WAIT && key_valid_pulse)
+                if (key_valid_pulse)
                     user_key <= key_code;
             end
         end
@@ -131,7 +133,7 @@ module mode_controller (
             LEARN_CHECK: begin
                 if (!mode_sel)
                     next_state = FREE_MODE;
-                else if (user_key == expected_note) begin
+                else if (key_code == expected_note) begin
                     if (song_index == 2'd3)
                         next_state = LEARN_DONE;
                     else
