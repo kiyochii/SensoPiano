@@ -129,15 +129,16 @@ module top (
     // =========================================================
     // Visualizações simples
     // =========================================================
-    assign leds_out     = mc_leds_out;
-    assign leds_out_reg = keys_reg;
+    // Saidas de LED na placa sao ativas em nivel baixo.
+    assign leds_out     = ~mc_leds_out;
+    assign leds_out_reg = ~keys_reg;
 
     // =========================================================
     // RGB vindos do mode_controller
     // =========================================================
-    assign rgb_r = mc_rgb_r;
-    assign rgb_g = mc_rgb_g;
-    assign rgb_b = mc_rgb_b;
+    assign rgb_r = ~mc_rgb_r;
+    assign rgb_g = ~mc_rgb_g;
+    assign rgb_b = ~mc_rgb_b;
 
     // =========================================================
     // Envio UART
