@@ -28,14 +28,6 @@ module top (
     output wire [11:0] leds_out,   // LEDs simples (tecla ativa)
     
     // =========================================================
-    // (shift register 74HC595)
-    // =========================================================
-    output wire        led_ser,    // DATA
-    output wire        led_srclk,  // SHIFT CLOCK
-    output wire        led_rclk,   // LATCH
-    output wire        led_busy,   // opcional (debug útil)
-
-    // =========================================================
     // RGB (depende se você realmente usar LED RGB)
     // =========================================================
     output wire [11:0] rgb_r,
@@ -46,11 +38,10 @@ module top (
     //  DEBUG
     // =========================================================
     output wire [11:0] keys_db,
+    output wire [11:0] keys_reg,
     output wire        key_any,
     output wire        key_valid,
     output wire        key_error,
-    output wire [3:0]  key_code_current,
-    output wire [3:0]  key_code_reg,
 
     output wire        key_valid_pulse,
     output wire [1:0]  state_dbg,
@@ -79,23 +70,19 @@ module top (
     wire [11:0] mc_rgb_b;
     wire [2:0]  mc_octave_out;
 
-    wire [35:0] rgb_data;
-    wire        shift_start;
-
     // =========================================================
-    // Fluxo de dados: debounce / validação / codificação da tecla
+    // Fluxo de dados: debounce / validação / registro da tecla
     // =========================================================
     fluxo_dados u_fluxo_dados (
-        .clk              (clk),
-        .rst              (rst),
-        .keys_raw         (keys_raw),
-        .load_key         (load_key),
-        .key_any          (key_any),
-        .key_valid        (key_valid),
-        .key_error        (key_error),
-        .key_code_current (key_code_current),
-        .key_code_reg     (key_code_reg),
-        .keys_db          (keys_db)
+        .clk      (clk),
+        .rst      (rst),
+        .keys_raw (keys_raw),
+        .load_key (load_key),
+        .key_any  (key_any),
+        .key_valid(key_valid),
+        .key_error(key_error),
+        .keys_reg (keys_reg),
+        .keys_db  (keys_db)
     );
 
     // =========================================================
@@ -121,7 +108,7 @@ module top (
         .mode_sel        (mode_sel),
         .start           (start),
         .keys_db         (keys_db),
-        .key_code        (key_code_reg),
+        .keys_reg        (keys_reg),
         .key_valid_pulse (key_valid_pulse),
 
         .leds_out        (mc_leds_out),
@@ -143,7 +130,7 @@ module top (
     // Visualizações simples
     // =========================================================
     assign leds_out     = mc_leds_out;
-    assign leds_out_reg = (12'b000000000001 << key_code_reg);
+    assign leds_out_reg = keys_reg;
 
     // =========================================================
     // RGB vindos do mode_controller
@@ -153,52 +140,13 @@ module top (
     assign rgb_b = mc_rgb_b;
 
     // =========================================================
-    // Empacotamento RGB por LED
-    // Ordem: LED11 ... LED0
-    // Cada LED ocupa 3 bits: R, G, B
-    // Se a ligação física estiver BGR, troque a ordem aqui
-    // =========================================================
-    assign rgb_data = {
-        rgb_r[11], rgb_g[11], rgb_b[11],
-        rgb_r[10], rgb_g[10], rgb_b[10],
-        rgb_r[9],  rgb_g[9],  rgb_b[9],
-        rgb_r[8],  rgb_g[8],  rgb_b[8],
-        rgb_r[7],  rgb_g[7],  rgb_b[7],
-        rgb_r[6],  rgb_g[6],  rgb_b[6],
-        rgb_r[5],  rgb_g[5],  rgb_b[5],
-        rgb_r[4],  rgb_g[4],  rgb_b[4],
-        rgb_r[3],  rgb_g[3],  rgb_b[3],
-        rgb_r[2],  rgb_g[2],  rgb_b[2],
-        rgb_r[1],  rgb_g[1],  rgb_b[1],
-        rgb_r[0],  rgb_g[0],  rgb_b[0]
-    };
-
-    // =========================================================
-    // Atualização do shift register
-    // =========================================================
-    assign shift_start = key_valid_pulse | mc_send_note;
-
-    shift595 u_shift595 (
-        .clk   (clk),
-        .rst   (rst),
-        .start (shift_start),
-        .data  (rgb_data),
-        .ser   (led_ser),
-        .srclk (led_srclk),
-        .rclk  (led_rclk),
-        .busy  (led_busy)
-    );
-
-    // =========================================================
     // Envio UART
-    // Por enquanto ainda manda só a nota.
-    // Depois você pode adaptar o sender para mandar {oitava, nota}.
     // =========================================================
     uart_key_sender u_uart_key_sender (
         .clk       (clk),
         .rst       (rst),
         .send_pulse(mc_send_note),
-        .key_code  (mc_note_out),
+        .note_code (mc_note_out),
         .tx_tdata  (tx_tdata),
         .tx_tvalid (tx_tvalid),
         .octave_code(mc_octave_out),

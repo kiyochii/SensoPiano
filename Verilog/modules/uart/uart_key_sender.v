@@ -3,7 +3,7 @@ module uart_key_sender (
     input  wire       rst,
 
     input  wire       send_pulse,
-    input  wire [3:0] key_code,
+    input  wire [3:0] note_code,
     input  wire [2:0] octave_code,
 
     output reg  [7:0] tx_tdata,
@@ -22,7 +22,7 @@ module uart_key_sender (
             tx_tvalid <= 1'b0;
         end else begin
             if (send_pulse && !pending) begin
-                data_buf <= {1'b0, octave_code, key_code};
+                data_buf <= {1'b0, octave_code, note_code};
                 pending  <= 1'b1;
             end
 

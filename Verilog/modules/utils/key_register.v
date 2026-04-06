@@ -1,16 +1,16 @@
 module key_register (
-    input  wire       clk,
-    input  wire       rst,
-    input  wire       load_key,
-    input  wire [3:0] key_code_in,
-    output reg  [3:0] key_code_out
+    input  wire        clk,
+    input  wire        rst,
+    input  wire        load_key,
+    input  wire [11:0] keys_in,
+    output reg  [11:0] keys_out
 );
 
     always @(posedge clk) begin
         if (rst)
-            key_code_out <= 4'd0;
+            keys_out <= 12'd0;
         else if (load_key)
-            key_code_out <= key_code_in;
+            keys_out <= keys_in;
     end
 
 endmodule

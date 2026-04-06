@@ -11,11 +11,10 @@ module tb_top;
     wire        esp_txd;
 
     wire [11:0] keys_db;
+    wire [11:0] keys_reg;
     wire        key_any;
     wire        key_valid;
     wire        key_error;
-    wire [3:0]  key_code_current;
-    wire [3:0]  key_code_reg;
 
     wire        key_valid_pulse;
     wire [1:0]  state_dbg;
@@ -36,11 +35,6 @@ module tb_top;
     wire [11:0] rgb_g;
     wire [11:0] rgb_b;
 
-    wire        led_ser;
-    wire        led_srclk;
-    wire        led_rclk;
-    wire        led_busy;
-
     top dut (
         .clk              (clk),
         .rst              (rst),
@@ -50,11 +44,10 @@ module tb_top;
         .esp_txd          (esp_txd),
 
         .keys_db          (keys_db),
+        .keys_reg         (keys_reg),
         .key_any          (key_any),
         .key_valid        (key_valid),
         .key_error        (key_error),
-        .key_code_current (key_code_current),
-        .key_code_reg     (key_code_reg),
 
         .key_valid_pulse  (key_valid_pulse),
         .state_dbg        (state_dbg),
@@ -73,12 +66,7 @@ module tb_top;
 
         .rgb_r            (rgb_r),
         .rgb_g            (rgb_g),
-        .rgb_b            (rgb_b),
-
-        .led_ser          (led_ser),
-        .led_srclk        (led_srclk),
-        .led_rclk         (led_rclk),
-        .led_busy         (led_busy)
+        .rgb_b            (rgb_b)
     );
 
     // =========================================================
@@ -150,9 +138,9 @@ module tb_top;
         #25_000_000;
 
         // -----------------------------------------
-        // TESTE 3: duas teclas ao mesmo tempo
+        // TESTE 3: duas teclas ao mesmo tempo no modo livre
         // -----------------------------------------
-        $display("=== TESTE 3: erro com duas teclas ===");
+        $display("=== TESTE 3: modo livre com duas teclas ===");
         press_key(1);
         press_key(2);
         #25_000_000;
@@ -198,8 +186,8 @@ module tb_top;
     // =========================================================
     always @(posedge clk) begin
         if (key_valid_pulse) begin
-            $display("[%0t ns] key_valid_pulse | key_code_reg=%0d | leds_out=%b | leds_out_reg=%b",
-                     $time, key_code_reg, leds_out, leds_out_reg);
+            $display("[%0t ns] key_valid_pulse | keys_reg=%b | leds_out=%b | leds_out_reg=%b",
+                     $time, keys_reg, leds_out, leds_out_reg);
         end
 
         if (mc_send_note) begin
@@ -221,10 +209,6 @@ module tb_top;
 
     always @(negedge uart_busy) begin
         $display("[%0t ns] UART terminou transmissao", $time);
-    end
-
-    always @(posedge led_rclk) begin
-        $display("[%0t ns] Shift register latch", $time);
     end
 
 endmodule

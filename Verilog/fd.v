@@ -8,8 +8,7 @@ module fluxo_dados (
     output wire        key_any,
     output wire        key_valid,
     output wire        key_error,
-    output wire [3:0]  key_code_current,
-    output wire [3:0]  key_code_reg,
+    output wire [11:0] keys_reg,
     output wire [11:0] keys_db
 );
 
@@ -26,20 +25,16 @@ module fluxo_dados (
     debouncer u_db_10 (.clk(clk), .rst_n(~rst), .button_in(keys_raw[10]), .button_out(keys_db[10]));
     debouncer u_db_11 (.clk(clk), .rst_n(~rst), .button_in(keys_raw[11]), .button_out(keys_db[11]));
 
-    key_encoder_12 u_key_encoder_12 (
-        .keys_in   (keys_db),
-        .key_any   (key_any),
-        .key_valid (key_valid),
-        .key_error (key_error),
-        .key_code  (key_code_current)
-    );
+    assign key_any   = |keys_db;
+    assign key_valid = key_any && ((keys_db & (keys_db - 12'd1)) == 12'd0);
+    assign key_error = key_any && !key_valid;
 
     key_register u_key_register (
-        .clk          (clk),
-        .rst          (rst),
-        .load_key     (load_key),
-        .key_code_in  (key_code_current),
-        .key_code_out (key_code_reg)
+        .clk      (clk),
+        .rst      (rst),
+        .load_key (load_key),
+        .keys_in  (keys_db),
+        .keys_out (keys_reg)
     );
 
 endmodule

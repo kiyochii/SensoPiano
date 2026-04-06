@@ -6,7 +6,7 @@ module mode_controller (
     input  wire        start,            // inicia modo aprender
 
     input  wire [11:0] keys_db,
-    input  wire [3:0]  key_code,
+    input  wire [11:0] keys_reg,
     input  wire        key_valid_pulse,
 
     output reg  [11:0] leds_out,
@@ -32,9 +32,7 @@ module mode_controller (
     localparam LEARN_DONE  = 3'd5;
 
     reg [2:0] state, next_state;
-
     reg [2:0] song_index;
-    reg [3:0] user_key;
     reg       expected_key_prev;
 
     reg [6:0] expected_full;
@@ -42,13 +40,11 @@ module mode_controller (
     reg [2:0] expected_octave;
 
     wire [11:0] expected_onehot;
-    wire [11:0] user_onehot;
     wire        expected_key_down;
     wire        expected_key_pulse;
 
-    assign expected_onehot = (12'b000000000001 << expected_note);
-    assign user_onehot     = (12'b000000000001 << key_code);
-    assign expected_key_down  = keys_db[expected_note];
+    assign expected_onehot   = (12'b000000000001 << expected_note);
+    assign expected_key_down = keys_db[expected_note];
     assign expected_key_pulse = expected_key_down & ~expected_key_prev;
 
     // ==========================================
@@ -70,17 +66,48 @@ module mode_controller (
         end
     endfunction
 
+    function [3:0] key_vector_to_note;
+        input [11:0] keys_in;
+        begin
+            key_vector_to_note = 4'd0;
+
+            if (keys_in[0])
+                key_vector_to_note = 4'd0;
+            else if (keys_in[1])
+                key_vector_to_note = 4'd1;
+            else if (keys_in[2])
+                key_vector_to_note = 4'd2;
+            else if (keys_in[3])
+                key_vector_to_note = 4'd3;
+            else if (keys_in[4])
+                key_vector_to_note = 4'd4;
+            else if (keys_in[5])
+                key_vector_to_note = 4'd5;
+            else if (keys_in[6])
+                key_vector_to_note = 4'd6;
+            else if (keys_in[7])
+                key_vector_to_note = 4'd7;
+            else if (keys_in[8])
+                key_vector_to_note = 4'd8;
+            else if (keys_in[9])
+                key_vector_to_note = 4'd9;
+            else if (keys_in[10])
+                key_vector_to_note = 4'd10;
+            else if (keys_in[11])
+                key_vector_to_note = 4'd11;
+        end
+    endfunction
+
     // ==========================================
     // Registradores principais
     // ==========================================
     always @(posedge clk) begin
         if (rst) begin
-            state      <= FREE_MODE;
-            song_index <= 3'd0;
-            user_key   <= 4'd0;
+            state             <= FREE_MODE;
+            song_index        <= 3'd0;
             expected_key_prev <= 1'b0;
         end else begin
-            state <= next_state;
+            state             <= next_state;
             expected_key_prev <= expected_key_down;
 
             if (!mode_sel) begin
@@ -92,9 +119,6 @@ module mode_controller (
                     if (song_index != 3'd5)
                         song_index <= song_index + 3'd1;
                 end
-
-                if (key_valid_pulse)
-                    user_key <= key_code;
             end
         end
     end
@@ -181,18 +205,15 @@ module mode_controller (
         state_dbg     = state;
 
         case (state)
-
             FREE_MODE: begin
+                leds_out = keys_db;
+                rgb_r    = keys_db;
+                rgb_g    = keys_db;
+                rgb_b    = keys_db;
+
                 if (key_valid_pulse) begin
-                    leds_out   = user_onehot;
-
-                    // branco no modo livre
-                    rgb_r      = user_onehot;
-                    rgb_g      = user_onehot;
-                    rgb_b      = user_onehot;
-
                     send_note  = 1'b1;
-                    note_out   = key_code;
+                    note_out   = key_vector_to_note(keys_reg);
                     octave_out = 3'd4;
                 end
             end
@@ -203,10 +224,9 @@ module mode_controller (
                 note_out   = expected_note;
                 octave_out = expected_octave;
 
-                // cor baseada na oitava
                 case (expected_octave)
                     3'd0, 3'd1, 3'd2: rgb_r = expected_onehot; // grave
-                    3'd3, 3'd4, 3'd5: rgb_g = expected_onehot; // médio
+                    3'd3, 3'd4, 3'd5: rgb_g = expected_onehot; // medio
                     default:           rgb_b = expected_onehot; // agudo
                 endcase
             end
