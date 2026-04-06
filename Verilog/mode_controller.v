@@ -5,6 +5,7 @@ module mode_controller (
     input  wire        mode_sel,         // 0 = livre, 1 = aprender
     input  wire        start,            // inicia modo aprender
 
+    input  wire [11:0] keys_db,
     input  wire [3:0]  key_code,
     input  wire        key_valid_pulse,
 
@@ -32,8 +33,9 @@ module mode_controller (
 
     reg [2:0] state, next_state;
 
-    reg [1:0] song_index;
+    reg [2:0] song_index;
     reg [3:0] user_key;
+    reg       expected_key_prev;
 
     reg [6:0] expected_full;
     reg [3:0] expected_note;
@@ -41,24 +43,28 @@ module mode_controller (
 
     wire [11:0] expected_onehot;
     wire [11:0] user_onehot;
+    wire        expected_key_down;
+    wire        expected_key_pulse;
 
     assign expected_onehot = (12'b000000000001 << expected_note);
     assign user_onehot     = (12'b000000000001 << key_code);
+    assign expected_key_down  = keys_db[expected_note];
+    assign expected_key_pulse = expected_key_down & ~expected_key_prev;
 
     // ==========================================
     // ROM simples da música
     // Formato: [6:4] = oitava, [3:0] = nota
     // ==========================================
     function [6:0] song_rom;
-        input [1:0] idx;
+        input [2:0] idx;
         begin
             case (idx)
-                2'd0: song_rom = 7'b011_0000; // oitava 3, nota 0
-                2'd1: song_rom = 7'b100_0010; // oitava 4, nota 4
-                2'd2: song_rom = 7'b101_0100; // oitava 5, nota 7
-                2'd3: song_rom = 7'b110_0001; // oitava 6, nota 11
-2'd4: song_rom = 7'b101_0100; // oitava 5, nota 7
-                2'd5: song_rom = 7'b110_0101; // oitava 6, nota 11
+                3'd0: song_rom = 7'b011_0000; // oitava 3, nota 0
+                3'd1: song_rom = 7'b100_0010; // oitava 4, nota 2
+                3'd2: song_rom = 7'b101_0100; // oitava 5, nota 4
+                3'd3: song_rom = 7'b110_0001; // oitava 6, nota 1
+                3'd4: song_rom = 7'b101_0100; // oitava 5, nota 4
+                3'd5: song_rom = 7'b110_0101; // oitava 6, nota 5
                 default: song_rom = 7'b100_0000;
             endcase
         end
@@ -70,19 +76,21 @@ module mode_controller (
     always @(posedge clk) begin
         if (rst) begin
             state      <= FREE_MODE;
-            song_index <= 2'd0;
+            song_index <= 3'd0;
             user_key   <= 4'd0;
+            expected_key_prev <= 1'b0;
         end else begin
             state <= next_state;
+            expected_key_prev <= expected_key_down;
 
             if (!mode_sel) begin
-                song_index <= 2'd0;
+                song_index <= 3'd0;
             end else begin
                 if (state == LEARN_IDLE && start)
-                    song_index <= 2'd0;
-                else if (state == LEARN_CHECK && key_code == expected_note) begin
-                    if (song_index != 2'd3)
-                        song_index <= song_index + 2'd1;
+                    song_index <= 3'd0;
+                else if (state == LEARN_CHECK && expected_key_prev) begin
+                    if (song_index != 3'd5)
+                        song_index <= song_index + 3'd1;
                 end
 
                 if (key_valid_pulse)
@@ -126,20 +134,20 @@ module mode_controller (
             LEARN_WAIT: begin
                 if (!mode_sel)
                     next_state = FREE_MODE;
-                else if (key_valid_pulse)
+                else if (expected_key_pulse)
                     next_state = LEARN_CHECK;
             end
 
             LEARN_CHECK: begin
                 if (!mode_sel)
                     next_state = FREE_MODE;
-                else if (key_code == expected_note) begin
-                    if (song_index == 2'd3)
+                else if (expected_key_prev) begin
+                    if (song_index == 3'd5)
                         next_state = LEARN_DONE;
                     else
                         next_state = LEARN_SHOW;
                 end else begin
-                    next_state = LEARN_SHOW;
+                    next_state = LEARN_WAIT;
                 end
             end
 
@@ -214,7 +222,7 @@ module mode_controller (
             end
 
             LEARN_CHECK: begin
-                if (user_key == expected_note)
+                if (expected_key_prev)
                     correct_pulse = 1'b1;
                 else
                     wrong_pulse = 1'b1;

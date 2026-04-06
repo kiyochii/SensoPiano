@@ -120,6 +120,7 @@ module top (
         .rst             (rst),
         .mode_sel        (mode_sel),
         .start           (start),
+        .keys_db         (keys_db),
         .key_code        (key_code_reg),
         .key_valid_pulse (key_valid_pulse),
 

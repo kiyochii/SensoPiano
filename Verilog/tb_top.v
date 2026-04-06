@@ -179,11 +179,14 @@ module tb_top;
         release_key(0);
         #25_000_000;
 
-        // mais uma resposta
-        press_key(4);
+        // responde com a tecla correta mesmo com outra pressionada junto
+        $display("=== TESTE 6: modo aprender com tecla correta + extra ===");
+        press_key(2);
+        press_key(9);
         #25_000_000;
         #2_000_000;
-        release_key(4);
+        release_key(2);
+        release_key(9);
         #25_000_000;
 
         $display("=== FIM DA SIMULACAO ===");
