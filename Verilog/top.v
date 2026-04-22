@@ -23,6 +23,11 @@ module top (
     output wire        esp_txd,    // UART TX → RX do ESP32
 
     // =========================================================
+    // Audio PWM simples
+    // =========================================================
+    output wire        audio_pwm,
+
+    // =========================================================
     // serve para nada
     // =========================================================
     output wire [11:0] leds_out,   // LEDs simples (tecla ativa)
@@ -59,6 +64,8 @@ module top (
 
 );
     wire load_key;
+    wire debug_input_bypass;
+    wire debug_uart_mode;
 
     wire [7:0] tx_tdata;
     wire       tx_tvalid;
@@ -69,6 +76,101 @@ module top (
     wire [11:0] mc_rgb_g;
     wire [11:0] mc_rgb_b;
     wire [2:0]  mc_octave_out;
+    wire        uart_send_pulse;
+    wire [3:0]  uart_note_out;
+    wire [2:0]  uart_octave_out;
+
+    reg         free_uart_pulse;
+    reg [3:0]   free_uart_note;
+    reg [23:0]  debug_uart_counter;
+    reg         debug_uart_pulse;
+    reg  [15:0] audio_counter;
+    reg         audio_pwm_reg;
+
+    wire        audio_enable;
+
+    assign debug_input_bypass = !mode_sel && start;
+    assign debug_uart_mode    = !mode_sel && start;
+    assign audio_enable       = |keys_raw;
+    assign audio_pwm          = audio_pwm_reg;
+
+    function [3:0] key_vector_to_note;
+        input [11:0] keys_in;
+        begin
+            key_vector_to_note = 4'd0;
+
+            if (keys_in[0])
+                key_vector_to_note = 4'd0;
+            else if (keys_in[1])
+                key_vector_to_note = 4'd1;
+            else if (keys_in[2])
+                key_vector_to_note = 4'd2;
+            else if (keys_in[3])
+                key_vector_to_note = 4'd3;
+            else if (keys_in[4])
+                key_vector_to_note = 4'd4;
+            else if (keys_in[5])
+                key_vector_to_note = 4'd5;
+            else if (keys_in[6])
+                key_vector_to_note = 4'd6;
+            else if (keys_in[7])
+                key_vector_to_note = 4'd7;
+            else if (keys_in[8])
+                key_vector_to_note = 4'd8;
+            else if (keys_in[9])
+                key_vector_to_note = 4'd9;
+            else if (keys_in[10])
+                key_vector_to_note = 4'd10;
+            else if (keys_in[11])
+                key_vector_to_note = 4'd11;
+        end
+    endfunction
+
+    always @(posedge clk) begin
+        if (rst) begin
+            free_uart_pulse   <= 1'b0;
+            free_uart_note    <= 4'd0;
+            debug_uart_counter <= 24'd0;
+            debug_uart_pulse   <= 1'b0;
+            audio_counter      <= 16'd0;
+            audio_pwm_reg      <= 1'b0;
+        end else begin
+            free_uart_pulse <= (!mode_sel && !debug_uart_mode && key_valid_pulse);
+
+            if (!mode_sel && key_valid_pulse)
+                free_uart_note <= key_vector_to_note(keys_db & (~keys_db + 12'd1));
+
+            if (debug_uart_mode) begin
+                debug_uart_pulse <= 1'b0;
+
+                if (debug_uart_counter == 24'd4_999_999) begin
+                    debug_uart_counter <= 24'd0;
+                    debug_uart_pulse   <= 1'b1;
+                end else begin
+                    debug_uart_counter <= debug_uart_counter + 24'd1;
+                end
+            end else begin
+                debug_uart_counter <= 24'd0;
+                debug_uart_pulse   <= 1'b0;
+            end
+
+            if (audio_enable) begin
+                if (audio_counter == 16'd24_999) begin
+                    audio_counter <= 16'd0;
+                    audio_pwm_reg <= ~audio_pwm_reg;
+                end else begin
+                    audio_counter <= audio_counter + 16'd1;
+                end
+            end else begin
+                audio_counter <= 16'd0;
+                audio_pwm_reg <= 1'b0;
+            end
+        end
+    end
+
+    assign uart_send_pulse = debug_uart_mode ? debug_uart_pulse : (mode_sel ? mc_send_note : free_uart_pulse);
+    assign uart_note_out   = debug_uart_mode ? 4'd5 : (mode_sel ? mc_note_out : free_uart_note);
+    assign uart_octave_out = debug_uart_mode ? 3'd2 : (mode_sel ? mc_octave_out : 3'd4);
 
     // =========================================================
     // Fluxo de dados: debounce / validação / registro da tecla
@@ -77,6 +179,7 @@ module top (
         .clk      (clk),
         .rst      (rst),
         .keys_raw (keys_raw),
+        .debug_bypass(debug_input_bypass),
         .load_key (load_key),
         .key_any  (key_any),
         .key_valid(key_valid),
@@ -146,11 +249,11 @@ module top (
     uart_key_sender u_uart_key_sender (
         .clk       (clk),
         .rst       (rst),
-        .send_pulse(mc_send_note),
-        .note_code (mc_note_out),
+        .send_pulse(uart_send_pulse),
+        .note_code (uart_note_out),
         .tx_tdata  (tx_tdata),
         .tx_tvalid (tx_tvalid),
-        .octave_code(mc_octave_out),
+        .octave_code(uart_octave_out),
         .tx_tready (tx_tready)
     );
 

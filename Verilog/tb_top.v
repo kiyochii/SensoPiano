@@ -9,6 +9,7 @@ module tb_top;
     reg         start;
 
     wire        esp_txd;
+    wire        audio_pwm;
 
     wire [11:0] keys_db;
     wire [11:0] keys_reg;
@@ -42,6 +43,7 @@ module tb_top;
         .mode_sel         (mode_sel),
         .start            (start),
         .esp_txd          (esp_txd),
+        .audio_pwm        (audio_pwm),
 
         .keys_db          (keys_db),
         .keys_reg         (keys_reg),

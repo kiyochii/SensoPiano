@@ -1,3 +1,0 @@
-# Adicione esta linha ao seu projeto Quartus para expor a nova saida de audio.
-# GPIO_1[17] no header de expansao da DE0-CV.
-set_location_assignment PIN_A15 -to audio_pwm

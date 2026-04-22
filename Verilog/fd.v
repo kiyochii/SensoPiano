@@ -2,6 +2,7 @@ module fluxo_dados (
     input  wire        clk,
     input  wire        rst,
     input  wire [11:0] keys_raw,
+    input  wire        debug_bypass,
 
     input  wire        load_key,
 
@@ -12,7 +13,20 @@ module fluxo_dados (
     output wire [11:0] keys_db
 );
 
+    reg  [11:0] keys_sync_0;
+    reg  [11:0] keys_sync_1;
     wire [11:0] keys_selected;
+    wire [11:0] keys_eval;
+
+    always @(posedge clk) begin
+        if (rst) begin
+            keys_sync_0 <= 12'd0;
+            keys_sync_1 <= 12'd0;
+        end else begin
+            keys_sync_0 <= keys_raw;
+            keys_sync_1 <= keys_sync_0;
+        end
+    end
 
     debouncer u_db_0  (.clk(clk), .rst_n(~rst), .button_in(keys_raw[0]),  .button_out(keys_db[0]));
     debouncer u_db_1  (.clk(clk), .rst_n(~rst), .button_in(keys_raw[1]),  .button_out(keys_db[1]));
@@ -27,10 +41,11 @@ module fluxo_dados (
     debouncer u_db_10 (.clk(clk), .rst_n(~rst), .button_in(keys_raw[10]), .button_out(keys_db[10]));
     debouncer u_db_11 (.clk(clk), .rst_n(~rst), .button_in(keys_raw[11]), .button_out(keys_db[11]));
 
-    assign key_any   = |keys_db;
-    assign key_valid = key_any && ((keys_db & (keys_db - 12'd1)) == 12'd0);
-    assign key_error = key_any && !key_valid;
-    assign keys_selected = keys_db & (~keys_db + 12'd1);
+    assign keys_eval     = debug_bypass ? keys_sync_1 : keys_db;
+    assign key_any       = |keys_eval;
+    assign key_valid     = key_any && ((keys_eval & (keys_eval - 12'd1)) == 12'd0);
+    assign key_error     = key_any && !key_valid;
+    assign keys_selected = keys_eval & (~keys_eval + 12'd1);
 
     key_register u_key_register (
         .clk      (clk),
