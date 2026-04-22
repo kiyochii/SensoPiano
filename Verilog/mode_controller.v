@@ -213,7 +213,10 @@ module mode_controller (
 
                 if (key_valid_pulse) begin
                     send_note  = 1'b1;
-                    note_out   = key_vector_to_note(keys_reg);
+                    // keys_reg so atualiza no clock seguinte ao pulso da UC.
+                    // Para montar o byte UART no mesmo ciclo do evento,
+                    // usamos a tecla debounced atual, que ja esta valida.
+                    note_out   = key_vector_to_note(keys_db);
                     octave_out = 3'd4;
                 end
             end

@@ -2,6 +2,10 @@
 
 module tb_top;
 
+    localparam integer UART_BIT_NS = 8640;
+    localparam integer KEY_SETTLE_NS = 1000;
+    localparam integer UART_FRAME_GAP_NS = 120000;
+
     reg         clk;
     reg         rst;
     reg  [11:0] keys_raw;
@@ -34,6 +38,10 @@ module tb_top;
     wire [11:0] rgb_r;
     wire [11:0] rgb_g;
     wire [11:0] rgb_b;
+
+    integer     uart_byte_count;
+    integer     i;
+    reg [7:0]   uart_rx_byte;
 
     top dut (
         .clk              (clk),
@@ -106,8 +114,8 @@ module tb_top;
     // Test sequence
     // =========================================================
     initial begin
-        $dumpfile("tb_top.vcd");
-        $dumpvars(0, tb_top);
+        uart_byte_count = 0;
+        uart_rx_byte    = 8'd0;
 
         rst      = 1'b1;
         keys_raw = 12'b0;
@@ -122,20 +130,18 @@ module tb_top;
         // -----------------------------------------
         $display("=== TESTE 1: modo livre, tecla 3 ===");
         press_key(3);
-        #25_000_000;   // > 20 ms debounce
-        #2_000_000;
+        #KEY_SETTLE_NS;
         release_key(3);
-        #25_000_000;
+        #UART_FRAME_GAP_NS;
 
         // -----------------------------------------
         // TESTE 2: modo livre, tecla 7
         // -----------------------------------------
         $display("=== TESTE 2: modo livre, tecla 7 ===");
         press_key(7);
-        #25_000_000;
-        #2_000_000;
+        #KEY_SETTLE_NS;
         release_key(7);
-        #25_000_000;
+        #UART_FRAME_GAP_NS;
 
         // -----------------------------------------
         // TESTE 3: duas teclas ao mesmo tempo no modo livre
@@ -143,10 +149,10 @@ module tb_top;
         $display("=== TESTE 3: modo livre com duas teclas ===");
         press_key(1);
         press_key(2);
-        #25_000_000;
+        #KEY_SETTLE_NS;
         release_key(1);
         release_key(2);
-        #25_000_000;
+        #UART_FRAME_GAP_NS;
 
         // -----------------------------------------
         // TESTE 4: modo aprender
@@ -157,25 +163,23 @@ module tb_top;
         pulse_start;
 
         // espera LEARN_SHOW/LEARN_WAIT
-        #5_000_000;
+        #UART_FRAME_GAP_NS;
 
         // responde primeira nota esperada com tecla 0
         $display("=== TESTE 5: resposta do usuario no modo aprender ===");
         press_key(0);
-        #25_000_000;
-        #2_000_000;
+        #KEY_SETTLE_NS;
         release_key(0);
-        #25_000_000;
+        #UART_FRAME_GAP_NS;
 
         // responde com a tecla correta mesmo com outra pressionada junto
         $display("=== TESTE 6: modo aprender com tecla correta + extra ===");
         press_key(2);
         press_key(9);
-        #25_000_000;
-        #2_000_000;
+        #KEY_SETTLE_NS;
         release_key(2);
         release_key(9);
-        #25_000_000;
+        #UART_FRAME_GAP_NS;
 
         $display("=== FIM DA SIMULACAO ===");
         $finish;
@@ -209,6 +213,36 @@ module tb_top;
 
     always @(negedge uart_busy) begin
         $display("[%0t ns] UART terminou transmissao", $time);
+    end
+
+    always @(posedge uart_busy) begin
+        if (!rst) begin
+            uart_rx_byte = 8'd0;
+
+            #((UART_BIT_NS * 3) / 2);
+            for (i = 0; i < 8; i = i + 1) begin
+                uart_rx_byte[i] = esp_txd;
+                #UART_BIT_NS;
+            end
+
+            uart_byte_count = uart_byte_count + 1;
+            $display("[%0t ns] UART byte[%0d] = 0x%02h", $time, uart_byte_count, uart_rx_byte);
+
+            case (uart_byte_count)
+                1: if (uart_rx_byte !== 8'h43) begin
+                    $display("ERRO: esperado 0x43 para tecla 3 em modo livre, recebido 0x%02h", uart_rx_byte);
+                    $fatal;
+                end
+                2: if (uart_rx_byte !== 8'h47) begin
+                    $display("ERRO: esperado 0x47 para tecla 7 em modo livre, recebido 0x%02h", uart_rx_byte);
+                    $fatal;
+                end
+                3: if (uart_rx_byte !== 8'h30) begin
+                    $display("ERRO: esperado 0x30 para primeira nota do modo aprender, recebido 0x%02h", uart_rx_byte);
+                    $fatal;
+                end
+            endcase
+        end
     end
 
 endmodule
