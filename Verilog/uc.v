@@ -42,9 +42,7 @@ module UC (
 
         case (state)
             SCAN: begin
-                if (key_error)
-                    next_state = WAIT_RELEASE;
-                else if (key_valid)
+                if (key_valid || key_error)
                     next_state = REGISTER;
                 else
                     next_state = SCAN;

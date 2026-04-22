@@ -2,7 +2,7 @@
 
 module debouncer #(
     parameter CLK_FREQ = 50_000_000,    // Clock frequency in Hz
-    parameter DEBOUNCE_TIME_MS = 0     // Debounce time in milliseconds
+    parameter DEBOUNCE_TIME_MS = 20     // Debounce time in milliseconds
 )(
     input wire clk,           // System clock
     input wire rst_n,         // Active low reset

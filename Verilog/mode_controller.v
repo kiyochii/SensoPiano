@@ -17,9 +17,6 @@ module mode_controller (
     output reg         send_note,
     output reg  [3:0]  note_out,
     output reg  [2:0]  octave_out,
-    output reg         tone_enable,
-    output reg  [3:0]  tone_note,
-    output reg  [2:0]  tone_octave,
 
     output reg         correct_pulse,
     output reg         wrong_pulse,
@@ -37,25 +34,32 @@ module mode_controller (
     reg [2:0] state, next_state;
     reg [2:0] song_index;
     reg       expected_key_prev;
-    reg       free_key_prev;
-    reg [3:0] free_note_latched;
-    reg [7:0] rand_lfsr;
+    reg       free_pulse;
+    reg [3:0] free_note_reg;
+    reg       free_valid_reg;
+    reg       free_error_reg;
 
     reg [6:0] expected_full;
     reg [3:0] expected_note;
     reg [2:0] expected_octave;
 
     wire [11:0] expected_onehot;
+    wire [11:0] free_key_selected;
     wire        expected_key_down;
     wire        expected_key_pulse;
     wire        free_key_any;
-    wire        free_press_pulse;
+    wire        free_key_valid;
+    wire        free_key_error;
+    wire        debug_mode;
 
     assign expected_onehot   = (12'b000000000001 << expected_note);
+    assign free_key_selected = keys_db & (~keys_db + 12'd1);
     assign expected_key_down = keys_db[expected_note];
     assign expected_key_pulse = expected_key_down & ~expected_key_prev;
     assign free_key_any      = |keys_db;
-    assign free_press_pulse  = free_key_any & ~free_key_prev;
+    assign free_key_valid    = free_key_any && ((keys_db & (keys_db - 12'd1)) == 12'd0);
+    assign free_key_error    = free_key_any && !free_key_valid;
+    assign debug_mode        = !mode_sel && start;
 
     // ==========================================
     // ROM simples da música
@@ -65,12 +69,12 @@ module mode_controller (
         input [2:0] idx;
         begin
             case (idx)
-                3'd0: song_rom = 7'b011_0000; // oitava 3, nota 0
-                3'd1: song_rom = 7'b100_0010; // oitava 4, nota 2
-                3'd2: song_rom = 7'b101_0100; // oitava 5, nota 4
-                3'd3: song_rom = 7'b110_0001; // oitava 6, nota 1
-                3'd4: song_rom = 7'b101_0100; // oitava 5, nota 4
-                3'd5: song_rom = 7'b110_0101; // oitava 6, nota 5
+                3'd0: song_rom = 7'b001_0000; // oitava 3, nota 0
+                3'd1: song_rom = 7'b010_0010; // oitava 4, nota 2
+                3'd2: song_rom = 7'b100_0100; // oitava 5, nota 4
+                3'd3: song_rom = 7'b100_0001; // oitava 6, nota 1
+                3'd4: song_rom = 7'b100_0100; // oitava 5, nota 4
+                3'd5: song_rom = 7'b100_0101; // oitava 6, nota 5
                 default: song_rom = 7'b100_0000;
             endcase
         end
@@ -108,29 +112,6 @@ module mode_controller (
         end
     endfunction
 
-    function [3:0] pick_note_from_keys;
-        input [11:0] keys_in;
-        input [3:0]  seed;
-        reg   [3:0]  idx;
-        reg   [3:0]  offset;
-        reg          found;
-        begin
-            pick_note_from_keys = 4'd0;
-            found = 1'b0;
-
-            for (offset = 0; offset < 12; offset = offset + 1) begin
-                idx = seed + offset;
-                if (idx >= 4'd12)
-                    idx = idx - 4'd12;
-
-                if (!found && keys_in[idx]) begin
-                    pick_note_from_keys = idx;
-                    found = 1'b1;
-                end
-            end
-        end
-    endfunction
-
     // ==========================================
     // Registradores principais
     // ==========================================
@@ -139,20 +120,19 @@ module mode_controller (
             state             <= FREE_MODE;
             song_index        <= 3'd0;
             expected_key_prev <= 1'b0;
-            free_key_prev     <= 1'b0;
-            free_note_latched <= 4'd0;
-            rand_lfsr         <= 8'hA5;
+            free_pulse        <= 1'b0;
+            free_note_reg     <= 4'd0;
+            free_valid_reg    <= 1'b0;
+            free_error_reg    <= 1'b0;
         end else begin
             state             <= next_state;
             expected_key_prev <= expected_key_down;
-            free_key_prev     <= free_key_any;
-            rand_lfsr         <= {rand_lfsr[6:0], rand_lfsr[7] ^ rand_lfsr[5] ^ rand_lfsr[4] ^ rand_lfsr[3]};
+            free_pulse        <= (!mode_sel && key_valid_pulse);
 
-            if (!mode_sel) begin
-                if (free_press_pulse)
-                    free_note_latched <= pick_note_from_keys(keys_db, rand_lfsr[3:0]);
-                else if (!free_key_any)
-                    free_note_latched <= 4'd0;
+            if (!mode_sel && key_valid_pulse) begin
+                free_note_reg  <= key_vector_to_note(free_key_selected);
+                free_valid_reg <= free_key_valid;
+                free_error_reg <= free_key_error;
             end
 
             if (!mode_sel) begin
@@ -243,9 +223,6 @@ module mode_controller (
         send_note     = 1'b0;
         note_out      = 4'd0;
         octave_out    = 3'd0;
-        tone_enable   = 1'b0;
-        tone_note     = 4'd0;
-        tone_octave   = 3'd0;
 
         correct_pulse = 1'b0;
         wrong_pulse   = 1'b0;
@@ -259,19 +236,10 @@ module mode_controller (
                 rgb_g    = keys_db;
                 rgb_b    = keys_db;
 
-                if (free_key_any) begin
-                    tone_enable = 1'b1;
-                    if (free_press_pulse)
-                        tone_note = pick_note_from_keys(keys_db, rand_lfsr[3:0]);
-                    else
-                        tone_note = free_note_latched;
-                    tone_octave = 3'd4;
-                end
-
-                if (free_press_pulse) begin
+                if (free_pulse) begin
                     send_note  = 1'b1;
-                    note_out   = pick_note_from_keys(keys_db, rand_lfsr[3:0]);
-                    octave_out = 3'd4;
+                    note_out   = free_note_reg;
+                    octave_out = debug_mode ? {1'b1, free_valid_reg, free_error_reg} : 3'd4;
                 end
             end
 
@@ -280,9 +248,6 @@ module mode_controller (
                 send_note  = 1'b1;
                 note_out   = expected_note;
                 octave_out = expected_octave;
-                tone_enable = 1'b1;
-                tone_note   = expected_note;
-                tone_octave = expected_octave;
 
                 case (expected_octave)
                     3'd0, 3'd1, 3'd2: rgb_r = expected_onehot; // grave
@@ -293,9 +258,6 @@ module mode_controller (
 
             LEARN_WAIT: begin
                 leds_out = expected_onehot;
-                tone_enable = 1'b1;
-                tone_note   = expected_note;
-                tone_octave = expected_octave;
 
                 case (expected_octave)
                     3'd0, 3'd1, 3'd2: rgb_r = expected_onehot;

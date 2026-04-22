@@ -12,6 +12,8 @@ module fluxo_dados (
     output wire [11:0] keys_db
 );
 
+    wire [11:0] keys_selected;
+
     debouncer u_db_0  (.clk(clk), .rst_n(~rst), .button_in(keys_raw[0]),  .button_out(keys_db[0]));
     debouncer u_db_1  (.clk(clk), .rst_n(~rst), .button_in(keys_raw[1]),  .button_out(keys_db[1]));
     debouncer u_db_2  (.clk(clk), .rst_n(~rst), .button_in(keys_raw[2]),  .button_out(keys_db[2]));
@@ -28,12 +30,13 @@ module fluxo_dados (
     assign key_any   = |keys_db;
     assign key_valid = key_any && ((keys_db & (keys_db - 12'd1)) == 12'd0);
     assign key_error = key_any && !key_valid;
+    assign keys_selected = keys_db & (~keys_db + 12'd1);
 
     key_register u_key_register (
         .clk      (clk),
         .rst      (rst),
         .load_key (load_key),
-        .keys_in  (keys_db),
+        .keys_in  (keys_selected),
         .keys_out (keys_reg)
     );
 

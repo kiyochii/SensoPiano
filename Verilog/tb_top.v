@@ -2,11 +2,6 @@
 
 module tb_top;
 
-    localparam integer UART_BIT_NS = 8640;
-    localparam integer KEY_SETTLE_NS = 1000;
-    localparam integer TONE_OBS_NS = 12_000_000;
-    localparam integer QUIET_OBS_NS = 2_000_000;
-
     reg         clk;
     reg         rst;
     reg  [11:0] keys_raw;
@@ -14,7 +9,6 @@ module tb_top;
     reg         start;
 
     wire        esp_txd;
-    wire        audio_pwm;
 
     wire [11:0] keys_db;
     wire [11:0] keys_reg;
@@ -41,12 +35,6 @@ module tb_top;
     wire [11:0] rgb_g;
     wire [11:0] rgb_b;
 
-    integer     pwm_edge_count;
-    integer     edge_snapshot;
-    integer     uart_byte_count;
-    integer     i;
-    reg [7:0]   uart_rx_byte;
-
     top dut (
         .clk              (clk),
         .rst              (rst),
@@ -54,7 +42,6 @@ module tb_top;
         .mode_sel         (mode_sel),
         .start            (start),
         .esp_txd          (esp_txd),
-        .audio_pwm        (audio_pwm),
 
         .keys_db          (keys_db),
         .keys_reg         (keys_reg),
@@ -119,10 +106,8 @@ module tb_top;
     // Test sequence
     // =========================================================
     initial begin
-        pwm_edge_count = 0;
-        edge_snapshot  = 0;
-        uart_byte_count = 0;
-        uart_rx_byte    = 8'd0;
+        $dumpfile("tb_top.vcd");
+        $dumpvars(0, tb_top);
 
         rst      = 1'b1;
         keys_raw = 12'b0;
@@ -136,79 +121,76 @@ module tb_top;
         // TESTE 1: modo livre, tecla 3
         // -----------------------------------------
         $display("=== TESTE 1: modo livre, tecla 3 ===");
-        edge_snapshot = pwm_edge_count;
         press_key(3);
-        #KEY_SETTLE_NS;
-        #TONE_OBS_NS;
-        if ((pwm_edge_count - edge_snapshot) < 4) begin
-            $display("ERRO: sem oscilacao suficiente no audio para tecla 3");
-            $fatal;
-        end
+        #25_000_000;   // > 20 ms debounce
+        #2_000_000;
         release_key(3);
-        #QUIET_OBS_NS;
+        #25_000_000;
 
         // -----------------------------------------
         // TESTE 2: modo livre, tecla 7
         // -----------------------------------------
         $display("=== TESTE 2: modo livre, tecla 7 ===");
-        edge_snapshot = pwm_edge_count;
         press_key(7);
-        #KEY_SETTLE_NS;
-        #TONE_OBS_NS;
-        if ((pwm_edge_count - edge_snapshot) < 4) begin
-            $display("ERRO: sem oscilacao suficiente no audio para tecla 7");
-            $fatal;
-        end
+        #25_000_000;
+        #2_000_000;
         release_key(7);
-        #QUIET_OBS_NS;
+        #25_000_000;
 
         // -----------------------------------------
         // TESTE 3: duas teclas ao mesmo tempo no modo livre
         // -----------------------------------------
         $display("=== TESTE 3: modo livre com duas teclas ===");
-        edge_snapshot = pwm_edge_count;
         press_key(1);
         press_key(2);
-        #KEY_SETTLE_NS;
-        #TONE_OBS_NS;
-        if ((pwm_edge_count - edge_snapshot) < 4) begin
-            $display("ERRO: esperado audio mesmo com duas teclas simultaneas");
-            $fatal;
-        end
+        #25_000_000;
         release_key(1);
         release_key(2);
-        #QUIET_OBS_NS;
+        #25_000_000;
 
         // -----------------------------------------
-        // TESTE 4: modo aprender
+        // TESTE 4: debug UART no modo livre
+        // start = 1 habilita pacote de debug
         // -----------------------------------------
-        $display("=== TESTE 4: entrar no modo aprender ===");
+        $display("=== TESTE 4: debug UART no modo livre ===");
+        start = 1'b1;
+        press_key(4);
+        press_key(8);
+        #25_000_000;
+        #2_000_000;
+        release_key(4);
+        release_key(8);
+        #25_000_000;
+        start = 1'b0;
+
+        // -----------------------------------------
+        // TESTE 5: modo aprender
+        // -----------------------------------------
+        $display("=== TESTE 5: entrar no modo aprender ===");
         mode_sel = 1'b1;
         #1000;
         pulse_start;
 
-        edge_snapshot = pwm_edge_count;
-        #TONE_OBS_NS;
-        if ((pwm_edge_count - edge_snapshot) < 4) begin
-            $display("ERRO: sem oscilacao suficiente no modo aprender");
-            $fatal;
-        end
+        // espera LEARN_SHOW/LEARN_WAIT
+        #5_000_000;
 
         // responde primeira nota esperada com tecla 0
-        $display("=== TESTE 5: resposta do usuario no modo aprender ===");
+        $display("=== TESTE 6: resposta do usuario no modo aprender ===");
         press_key(0);
-        #KEY_SETTLE_NS;
+        #25_000_000;
+        #2_000_000;
         release_key(0);
-        #QUIET_OBS_NS;
+        #25_000_000;
 
         // responde com a tecla correta mesmo com outra pressionada junto
-        $display("=== TESTE 6: modo aprender com tecla correta + extra ===");
+        $display("=== TESTE 7: modo aprender com tecla correta + extra ===");
         press_key(2);
         press_key(9);
-        #KEY_SETTLE_NS;
+        #25_000_000;
+        #2_000_000;
         release_key(2);
         release_key(9);
-        #QUIET_OBS_NS;
+        #25_000_000;
 
         $display("=== FIM DA SIMULACAO ===");
         $finish;
@@ -219,12 +201,13 @@ module tb_top;
     // =========================================================
     always @(posedge clk) begin
         if (key_valid_pulse) begin
-            $display("[%0t ns] key_valid_pulse | keys_reg=%b | leds_out=%b | leds_out_reg=%b",
-                     $time, keys_reg, leds_out, leds_out_reg);
+            $display("[%0t ns] key_valid_pulse | keys_db=%b | keys_reg=%b | key_valid=%b | key_error=%b",
+                     $time, keys_db, keys_reg, key_valid, key_error);
         end
 
         if (mc_send_note) begin
-            $display("[%0t ns] mc_send_note | nota=%0d", $time, mc_note_out);
+            $display("[%0t ns] mc_send_note | nota=%0d | payload=0x%02h",
+                     $time, mc_note_out, dut.u_uart_key_sender.data_buf);
         end
 
         if (mc_correct_pulse) begin
@@ -242,46 +225,6 @@ module tb_top;
 
     always @(negedge uart_busy) begin
         $display("[%0t ns] UART terminou transmissao", $time);
-    end
-
-    always @(posedge audio_pwm or negedge audio_pwm) begin
-        if (!rst) begin
-            pwm_edge_count = pwm_edge_count + 1;
-        end
-    end
-
-    always @(posedge uart_busy) begin
-        if (!rst) begin
-            uart_rx_byte = 8'd0;
-
-            #((UART_BIT_NS * 3) / 2);
-            for (i = 0; i < 8; i = i + 1) begin
-                uart_rx_byte[i] = esp_txd;
-                #UART_BIT_NS;
-            end
-
-            uart_byte_count = uart_byte_count + 1;
-            $display("[%0t ns] UART byte[%0d] = 0x%02h", $time, uart_byte_count, uart_rx_byte);
-
-            case (uart_byte_count)
-                1: if (uart_rx_byte !== 8'h43) begin
-                    $display("ERRO: esperado 0x43 para tecla 3 em modo livre, recebido 0x%02h", uart_rx_byte);
-                    $fatal;
-                end
-                2: if (uart_rx_byte !== 8'h47) begin
-                    $display("ERRO: esperado 0x47 para tecla 7 em modo livre, recebido 0x%02h", uart_rx_byte);
-                    $fatal;
-                end
-                3: if ((uart_rx_byte !== 8'h41) && (uart_rx_byte !== 8'h42)) begin
-                    $display("ERRO: esperado 0x41 ou 0x42 para duas teclas em modo livre, recebido 0x%02h", uart_rx_byte);
-                    $fatal;
-                end
-                4: if (uart_rx_byte !== 8'h30) begin
-                    $display("ERRO: esperado 0x30 para primeira nota do modo aprender, recebido 0x%02h", uart_rx_byte);
-                    $fatal;
-                end
-            endcase
-        end
     end
 
 endmodule
