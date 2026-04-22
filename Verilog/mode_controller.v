@@ -37,6 +37,9 @@ module mode_controller (
     reg [2:0] state, next_state;
     reg [2:0] song_index;
     reg       expected_key_prev;
+    reg       free_key_prev;
+    reg [3:0] free_note_latched;
+    reg [7:0] rand_lfsr;
 
     reg [6:0] expected_full;
     reg [3:0] expected_note;
@@ -46,13 +49,13 @@ module mode_controller (
     wire        expected_key_down;
     wire        expected_key_pulse;
     wire        free_key_any;
-    wire        free_key_valid;
+    wire        free_press_pulse;
 
     assign expected_onehot   = (12'b000000000001 << expected_note);
     assign expected_key_down = keys_db[expected_note];
     assign expected_key_pulse = expected_key_down & ~expected_key_prev;
     assign free_key_any      = |keys_db;
-    assign free_key_valid    = free_key_any && ((keys_db & (keys_db - 12'd1)) == 12'd0);
+    assign free_press_pulse  = free_key_any & ~free_key_prev;
 
     // ==========================================
     // ROM simples da música
@@ -105,6 +108,29 @@ module mode_controller (
         end
     endfunction
 
+    function [3:0] pick_note_from_keys;
+        input [11:0] keys_in;
+        input [3:0]  seed;
+        reg   [3:0]  idx;
+        reg   [3:0]  offset;
+        reg          found;
+        begin
+            pick_note_from_keys = 4'd0;
+            found = 1'b0;
+
+            for (offset = 0; offset < 12; offset = offset + 1) begin
+                idx = seed + offset;
+                if (idx >= 4'd12)
+                    idx = idx - 4'd12;
+
+                if (!found && keys_in[idx]) begin
+                    pick_note_from_keys = idx;
+                    found = 1'b1;
+                end
+            end
+        end
+    endfunction
+
     // ==========================================
     // Registradores principais
     // ==========================================
@@ -113,9 +139,21 @@ module mode_controller (
             state             <= FREE_MODE;
             song_index        <= 3'd0;
             expected_key_prev <= 1'b0;
+            free_key_prev     <= 1'b0;
+            free_note_latched <= 4'd0;
+            rand_lfsr         <= 8'hA5;
         end else begin
             state             <= next_state;
             expected_key_prev <= expected_key_down;
+            free_key_prev     <= free_key_any;
+            rand_lfsr         <= {rand_lfsr[6:0], rand_lfsr[7] ^ rand_lfsr[5] ^ rand_lfsr[4] ^ rand_lfsr[3]};
+
+            if (!mode_sel) begin
+                if (free_press_pulse)
+                    free_note_latched <= pick_note_from_keys(keys_db, rand_lfsr[3:0]);
+                else if (!free_key_any)
+                    free_note_latched <= 4'd0;
+            end
 
             if (!mode_sel) begin
                 song_index <= 3'd0;
@@ -221,18 +259,18 @@ module mode_controller (
                 rgb_g    = keys_db;
                 rgb_b    = keys_db;
 
-                if (free_key_valid) begin
+                if (free_key_any) begin
                     tone_enable = 1'b1;
-                    tone_note   = key_vector_to_note(keys_db);
+                    if (free_press_pulse)
+                        tone_note = pick_note_from_keys(keys_db, rand_lfsr[3:0]);
+                    else
+                        tone_note = free_note_latched;
                     tone_octave = 3'd4;
                 end
 
-                if (key_valid_pulse) begin
+                if (free_press_pulse) begin
                     send_note  = 1'b1;
-                    // keys_reg so atualiza no clock seguinte ao pulso da UC.
-                    // Para montar o byte UART no mesmo ciclo do evento,
-                    // usamos a tecla debounced atual, que ja esta valida.
-                    note_out   = key_vector_to_note(keys_db);
+                    note_out   = pick_note_from_keys(keys_db, rand_lfsr[3:0]);
                     octave_out = 3'd4;
                 end
             end

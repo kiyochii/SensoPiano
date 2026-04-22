@@ -170,9 +170,9 @@ module tb_top;
         press_key(1);
         press_key(2);
         #KEY_SETTLE_NS;
-        #QUIET_OBS_NS;
-        if ((pwm_edge_count - edge_snapshot) != 0) begin
-            $display("ERRO: nao deveria haver audio com duas teclas simultaneas");
+        #TONE_OBS_NS;
+        if ((pwm_edge_count - edge_snapshot) < 4) begin
+            $display("ERRO: esperado audio mesmo com duas teclas simultaneas");
             $fatal;
         end
         release_key(1);
@@ -272,7 +272,11 @@ module tb_top;
                     $display("ERRO: esperado 0x47 para tecla 7 em modo livre, recebido 0x%02h", uart_rx_byte);
                     $fatal;
                 end
-                3: if (uart_rx_byte !== 8'h30) begin
+                3: if ((uart_rx_byte !== 8'h41) && (uart_rx_byte !== 8'h42)) begin
+                    $display("ERRO: esperado 0x41 ou 0x42 para duas teclas em modo livre, recebido 0x%02h", uart_rx_byte);
+                    $fatal;
+                end
+                4: if (uart_rx_byte !== 8'h30) begin
                     $display("ERRO: esperado 0x30 para primeira nota do modo aprender, recebido 0x%02h", uart_rx_byte);
                     $fatal;
                 end
