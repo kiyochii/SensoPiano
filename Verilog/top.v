@@ -18,9 +18,14 @@ module top (
     input  wire        start,      // botão: iniciar modo aprender
 
     // =========================================================
-    // comunicação com ESP32
+    // UART para ESP32
     // =========================================================
-    output wire        esp_txd,    // UART TX → RX do ESP32
+    output wire        esp_txd,    // UART TX -> RX do ESP32
+
+    // =========================================================
+    // Saida de audio 1-bit
+    // =========================================================
+    output wire        audio_pwm,
 
     // =========================================================
     // serve para nada
@@ -60,29 +65,24 @@ module top (
 );
     wire load_key;
 
-    wire [7:0] tx_tdata;
-    wire       tx_tvalid;
-    wire       tx_tready;
-    wire [7:0] uart_tx_data_sel;
-    wire       uart_tx_valid_sel;
+    wire [7:0]  tx_tdata;
+    wire        tx_tvalid;
+    wire        tx_tready;
 
     wire [11:0] mc_leds_out;
     wire [11:0] mc_rgb_r;
     wire [11:0] mc_rgb_g;
     wire [11:0] mc_rgb_b;
     wire [2:0]  mc_octave_out;
+    wire        mc_tone_enable;
+    wire [3:0]  mc_tone_note;
+    wire [2:0]  mc_tone_octave;
 
-    wire        uart_test_mode;
-    reg  [22:0] uart_test_counter;
-    reg  [7:0]  uart_test_tdata;
-    reg         uart_test_tvalid;
-    reg         uart_test_pending;
+    reg  [20:0] audio_half_period;
+    reg  [20:0] audio_counter;
+    reg         audio_out_reg;
 
-    localparam [22:0] UART_TEST_INTERVAL = 23'd5_000_000;
-
-    assign uart_test_mode  = mode_sel & start;
-    assign uart_tx_data_sel  = uart_test_mode ? uart_test_tdata  : tx_tdata;
-    assign uart_tx_valid_sel = uart_test_mode ? uart_test_tvalid : tx_tvalid;
+    assign audio_pwm = audio_out_reg;
 
     // =========================================================
     // Fluxo de dados: debounce / validação / registro da tecla
@@ -133,6 +133,9 @@ module top (
         .send_note       (mc_send_note),
         .note_out        (mc_note_out),
         .octave_out      (mc_octave_out),
+        .tone_enable     (mc_tone_enable),
+        .tone_note       (mc_tone_note),
+        .tone_octave     (mc_tone_octave),
 
         .correct_pulse   (mc_correct_pulse),
         .wrong_pulse     (mc_wrong_pulse),
@@ -155,60 +158,76 @@ module top (
     assign rgb_b = ~mc_rgb_b;
 
     // =========================================================
-    // Envio UART
+    // UART
     // =========================================================
     uart_key_sender u_uart_key_sender (
-        .clk       (clk),
-        .rst       (rst),
-        .send_pulse(mc_send_note),
-        .note_code (mc_note_out),
-        .tx_tdata  (tx_tdata),
-        .tx_tvalid (tx_tvalid),
+        .clk        (clk),
+        .rst        (rst),
+        .send_pulse (mc_send_note),
+        .note_code  (mc_note_out),
         .octave_code(mc_octave_out),
-        .tx_tready (tx_tready)
+        .tx_tdata   (tx_tdata),
+        .tx_tvalid  (tx_tvalid),
+        .tx_tready  (tx_tready)
     );
-
-    always @(posedge clk) begin
-        if (rst || !uart_test_mode) begin
-            uart_test_counter <= 23'd0;
-            uart_test_tdata   <= 8'h55;
-            uart_test_tvalid  <= 1'b0;
-            uart_test_pending <= 1'b0;
-        end else begin
-            if (!uart_test_pending) begin
-                if (uart_test_counter == UART_TEST_INTERVAL - 1'b1) begin
-                    uart_test_counter <= 23'd0;
-                    uart_test_tdata   <= 8'h55;
-                    uart_test_pending <= 1'b1;
-                end else begin
-                    uart_test_counter <= uart_test_counter + 1'b1;
-                end
-            end
-
-            if (uart_test_pending) begin
-                uart_test_tvalid <= 1'b1;
-
-                if (uart_test_tvalid && tx_tready) begin
-                    uart_test_tvalid  <= 1'b0;
-                    uart_test_pending <= 1'b0;
-                end
-            end else begin
-                uart_test_tvalid <= 1'b0;
-            end
-        end
-    end
 
     uart_tx #(
         .DATA_WIDTH(8)
     ) u_uart_tx (
         .clk           (clk),
         .rst           (rst),
-        .s_axis_tdata  (uart_tx_data_sel),
-        .s_axis_tvalid (uart_tx_valid_sel),
+        .s_axis_tdata  (tx_tdata),
+        .s_axis_tvalid (tx_tvalid),
         .s_axis_tready (tx_tready),
         .txd           (esp_txd),
         .busy          (uart_busy),
         .prescale      (16'd54)
     );
+
+    // =========================================================
+    // Geracao de audio 1-bit
+    // =========================================================
+    always @(*) begin
+        case (mc_tone_note)
+            4'd0:  audio_half_period = 21'd47778; // C
+            4'd1:  audio_half_period = 21'd45098; // C#
+            4'd2:  audio_half_period = 21'd42567; // D
+            4'd3:  audio_half_period = 21'd40177; // D#
+            4'd4:  audio_half_period = 21'd37922; // E
+            4'd5:  audio_half_period = 21'd35792; // F
+            4'd6:  audio_half_period = 21'd33784; // F#
+            4'd7:  audio_half_period = 21'd31888; // G
+            4'd8:  audio_half_period = 21'd30101; // G#
+            4'd9:  audio_half_period = 21'd28409; // A
+            4'd10: audio_half_period = 21'd26814; // A#
+            4'd11: audio_half_period = 21'd25310; // B
+            default: audio_half_period = 21'd0;
+        endcase
+
+        case (mc_tone_octave)
+            3'd0: audio_half_period = audio_half_period << 4;
+            3'd1: audio_half_period = audio_half_period << 3;
+            3'd2: audio_half_period = audio_half_period << 2;
+            3'd3: audio_half_period = audio_half_period << 1;
+            3'd4: audio_half_period = audio_half_period;
+            3'd5: audio_half_period = audio_half_period >> 1;
+            3'd6: audio_half_period = audio_half_period >> 2;
+            default: audio_half_period = audio_half_period >> 3;
+        endcase
+    end
+
+    always @(posedge clk) begin
+        if (rst || !mc_tone_enable || (audio_half_period <= 21'd1)) begin
+            audio_counter <= 21'd0;
+            audio_out_reg <= 1'b0;
+        end else begin
+            if (audio_counter >= (audio_half_period - 21'd1)) begin
+                audio_counter <= 21'd0;
+                audio_out_reg <= ~audio_out_reg;
+            end else begin
+                audio_counter <= audio_counter + 21'd1;
+            end
+        end
+    end
 
 endmodule

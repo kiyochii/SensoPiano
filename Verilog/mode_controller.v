@@ -17,6 +17,9 @@ module mode_controller (
     output reg         send_note,
     output reg  [3:0]  note_out,
     output reg  [2:0]  octave_out,
+    output reg         tone_enable,
+    output reg  [3:0]  tone_note,
+    output reg  [2:0]  tone_octave,
 
     output reg         correct_pulse,
     output reg         wrong_pulse,
@@ -42,10 +45,14 @@ module mode_controller (
     wire [11:0] expected_onehot;
     wire        expected_key_down;
     wire        expected_key_pulse;
+    wire        free_key_any;
+    wire        free_key_valid;
 
     assign expected_onehot   = (12'b000000000001 << expected_note);
     assign expected_key_down = keys_db[expected_note];
     assign expected_key_pulse = expected_key_down & ~expected_key_prev;
+    assign free_key_any      = |keys_db;
+    assign free_key_valid    = free_key_any && ((keys_db & (keys_db - 12'd1)) == 12'd0);
 
     // ==========================================
     // ROM simples da música
@@ -198,6 +205,9 @@ module mode_controller (
         send_note     = 1'b0;
         note_out      = 4'd0;
         octave_out    = 3'd0;
+        tone_enable   = 1'b0;
+        tone_note     = 4'd0;
+        tone_octave   = 3'd0;
 
         correct_pulse = 1'b0;
         wrong_pulse   = 1'b0;
@@ -210,6 +220,12 @@ module mode_controller (
                 rgb_r    = keys_db;
                 rgb_g    = keys_db;
                 rgb_b    = keys_db;
+
+                if (free_key_valid) begin
+                    tone_enable = 1'b1;
+                    tone_note   = key_vector_to_note(keys_db);
+                    tone_octave = 3'd4;
+                end
 
                 if (key_valid_pulse) begin
                     send_note  = 1'b1;
@@ -226,6 +242,9 @@ module mode_controller (
                 send_note  = 1'b1;
                 note_out   = expected_note;
                 octave_out = expected_octave;
+                tone_enable = 1'b1;
+                tone_note   = expected_note;
+                tone_octave = expected_octave;
 
                 case (expected_octave)
                     3'd0, 3'd1, 3'd2: rgb_r = expected_onehot; // grave
@@ -236,6 +255,9 @@ module mode_controller (
 
             LEARN_WAIT: begin
                 leds_out = expected_onehot;
+                tone_enable = 1'b1;
+                tone_note   = expected_note;
+                tone_octave = expected_octave;
 
                 case (expected_octave)
                     3'd0, 3'd1, 3'd2: rgb_r = expected_onehot;
