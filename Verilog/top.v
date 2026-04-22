@@ -63,12 +63,26 @@ module top (
     wire [7:0] tx_tdata;
     wire       tx_tvalid;
     wire       tx_tready;
+    wire [7:0] uart_tx_data_sel;
+    wire       uart_tx_valid_sel;
 
     wire [11:0] mc_leds_out;
     wire [11:0] mc_rgb_r;
     wire [11:0] mc_rgb_g;
     wire [11:0] mc_rgb_b;
     wire [2:0]  mc_octave_out;
+
+    wire        uart_test_mode;
+    reg  [22:0] uart_test_counter;
+    reg  [7:0]  uart_test_tdata;
+    reg         uart_test_tvalid;
+    reg         uart_test_pending;
+
+    localparam [22:0] UART_TEST_INTERVAL = 23'd5_000_000;
+
+    assign uart_test_mode  = mode_sel & start;
+    assign uart_tx_data_sel  = uart_test_mode ? uart_test_tdata  : tx_tdata;
+    assign uart_tx_valid_sel = uart_test_mode ? uart_test_tvalid : tx_tvalid;
 
     // =========================================================
     // Fluxo de dados: debounce / validação / registro da tecla
@@ -154,13 +168,43 @@ module top (
         .tx_tready (tx_tready)
     );
 
+    always @(posedge clk) begin
+        if (rst || !uart_test_mode) begin
+            uart_test_counter <= 23'd0;
+            uart_test_tdata   <= 8'h55;
+            uart_test_tvalid  <= 1'b0;
+            uart_test_pending <= 1'b0;
+        end else begin
+            if (!uart_test_pending) begin
+                if (uart_test_counter == UART_TEST_INTERVAL - 1'b1) begin
+                    uart_test_counter <= 23'd0;
+                    uart_test_tdata   <= 8'h55;
+                    uart_test_pending <= 1'b1;
+                end else begin
+                    uart_test_counter <= uart_test_counter + 1'b1;
+                end
+            end
+
+            if (uart_test_pending) begin
+                uart_test_tvalid <= 1'b1;
+
+                if (uart_test_tvalid && tx_tready) begin
+                    uart_test_tvalid  <= 1'b0;
+                    uart_test_pending <= 1'b0;
+                end
+            end else begin
+                uart_test_tvalid <= 1'b0;
+            end
+        end
+    end
+
     uart_tx #(
         .DATA_WIDTH(8)
     ) u_uart_tx (
         .clk           (clk),
         .rst           (rst),
-        .s_axis_tdata  (tx_tdata),
-        .s_axis_tvalid (tx_tvalid),
+        .s_axis_tdata  (uart_tx_data_sel),
+        .s_axis_tvalid (uart_tx_valid_sel),
         .s_axis_tready (tx_tready),
         .txd           (esp_txd),
         .busy          (uart_busy),
