@@ -84,15 +84,13 @@ module top (
     reg [3:0]   free_uart_note;
     reg [23:0]  debug_uart_counter;
     reg         debug_uart_pulse;
-    reg  [15:0] audio_counter;
-    reg         audio_pwm_reg;
-
-    wire        audio_enable;
+    reg [20:0]  audio_counter [0:11];
+    reg [11:0]  audio_square;
+    integer     i;
 
     assign debug_input_bypass = !mode_sel && start;
     assign debug_uart_mode    = !mode_sel && start;
-    assign audio_enable       = |keys_raw;
-    assign audio_pwm          = audio_pwm_reg;
+    assign audio_pwm          = ^audio_square;
 
     function [3:0] key_vector_to_note;
         input [11:0] keys_in;
@@ -126,14 +124,36 @@ module top (
         end
     endfunction
 
+    function [20:0] key_half_period;
+        input [3:0] key_idx;
+        begin
+            case (key_idx)
+                4'd0:  key_half_period = 21'd47778;
+                4'd1:  key_half_period = 21'd45098;
+                4'd2:  key_half_period = 21'd42567;
+                4'd3:  key_half_period = 21'd40177;
+                4'd4:  key_half_period = 21'd37922;
+                4'd5:  key_half_period = 21'd35792;
+                4'd6:  key_half_period = 21'd33784;
+                4'd7:  key_half_period = 21'd31888;
+                4'd8:  key_half_period = 21'd30101;
+                4'd9:  key_half_period = 21'd28409;
+                4'd10: key_half_period = 21'd26814;
+                default: key_half_period = 21'd25310;
+            endcase
+        end
+    endfunction
+
     always @(posedge clk) begin
         if (rst) begin
             free_uart_pulse   <= 1'b0;
             free_uart_note    <= 4'd0;
             debug_uart_counter <= 24'd0;
             debug_uart_pulse   <= 1'b0;
-            audio_counter      <= 16'd0;
-            audio_pwm_reg      <= 1'b0;
+            audio_square       <= 12'd0;
+
+            for (i = 0; i < 12; i = i + 1)
+                audio_counter[i] <= 21'd0;
         end else begin
             free_uart_pulse <= (!mode_sel && !debug_uart_mode && key_valid_pulse);
 
@@ -154,16 +174,18 @@ module top (
                 debug_uart_pulse   <= 1'b0;
             end
 
-            if (audio_enable) begin
-                if (audio_counter == 16'd24_999) begin
-                    audio_counter <= 16'd0;
-                    audio_pwm_reg <= ~audio_pwm_reg;
+            for (i = 0; i < 12; i = i + 1) begin
+                if (keys_raw[i]) begin
+                    if (audio_counter[i] >= key_half_period(i[3:0])) begin
+                        audio_counter[i] <= 21'd0;
+                        audio_square[i]  <= ~audio_square[i];
+                    end else begin
+                        audio_counter[i] <= audio_counter[i] + 21'd1;
+                    end
                 end else begin
-                    audio_counter <= audio_counter + 16'd1;
+                    audio_counter[i] <= 21'd0;
+                    audio_square[i]  <= 1'b0;
                 end
-            end else begin
-                audio_counter <= 16'd0;
-                audio_pwm_reg <= 1'b0;
             end
         end
     end
